@@ -1,4 +1,5 @@
 import sys
+import argparse
 import yfinance as yf
 
 import plotly.graph_objects as go
@@ -12,7 +13,7 @@ from dash.dependencies import Input, Output
 import pandas as pd
 from datetime import datetime, timezone
 
-def download_data(stock_id):
+def download_data(args, stock_id):
     data = yf.download(  # or pdr.get_data_yahoo(...
             # tickers list or string as well
             tickers = stock_id,
@@ -20,12 +21,12 @@ def download_data(stock_id):
             # use "period" instead of start/end
             # valid periods: 1d,5d,1mo,3mo,6mo,1y,2y,5y,10y,ytd,max
             # (optional, default is '1mo')
-            period = "1d",
+            period = args.period,
 
             # fetch data by interval (including intraday if period < 60 days)
             # valid intervals: 1m,2m,5m,15m,30m,60m,90m,1h,1d,5d,1wk,1mo,3mo
             # (optional, default is '1d')
-            interval = "5m",
+            interval = args.interval,
 
             # group by ticker (to access via data['SPY'])
             # (optional, default is 'column')
@@ -37,7 +38,7 @@ def download_data(stock_id):
 
             # download pre/post regular market hours data
             # (optional, default is False)
-            prepost = False,
+            prepost = args.after,
 
             # use threads for mass downloading? (True/False/Integer)
             # (optional, default is True)
@@ -122,10 +123,10 @@ def gen_figure(stock_id, data):
 
     return fig_subplot
 
-def reload_figures(stock_ids):
+def reload_figures(args):
     figures = []
-    for stock_id in stock_ids:
-        data = download_data(stock_id)
+    for stock_id in args.stocks:
+        data = download_data(args, stock_id)
         fig = gen_figure(stock_id, data)
         figures += [fig]
 
@@ -133,11 +134,32 @@ def reload_figures(stock_ids):
     
 stock_ids = ''
 
+def cmd_line():
+    parser = argparse.ArgumentParser(description='Stock dashboard')
+    parser.add_argument('stocks', metavar='STOCK', type=str, nargs='+',
+                        help='stock indicatives')
+
+    parser.add_argument('--period', '-p', dest='period',
+                        choices=['1d', '5d', '1mo', '3mo', '6mo', '1y', '2y', '5y', '10y', 'ytd', 'max'], default='1d',
+                        help='date period')
+
+    parser.add_argument('--interval', '-i', dest='interval',
+                        choices=['1m', '2m', '5m', '15m', '30m', '60m', '90m', '1h', '1d', '5d', '1wk', '1mo', '3mo'], default='5m',
+                        help='fetch interval')
+
+    parser.add_argument('--after', dest='after', action='store_true',
+                        default=False,
+                        help='enable after/before hours')
+
+    args = parser.parse_args()
+
+    return args
+
 if __name__ == '__main__':
-    stock_ids = sys.argv[1:]
+    args = cmd_line()
 
-    figures = reload_figures(stock_ids)
-
+    
+    figures = reload_figures(args)
     
     app = dash.Dash()
     app.layout = html.Div([
@@ -153,7 +175,7 @@ if __name__ == '__main__':
     @app.callback(Output('live-update', 'children'),
               [Input('interval-component', 'n_intervals')])
     def update_figures(n):
-        figures = reload_figures(stock_ids)
+        figures = reload_figures(args)
         return [dcc.Graph(figure=fig) for fig in figures]
 
     app.run_server(debug=True, use_reloader=False)  # Turn off reloader if inside Jupyter 
